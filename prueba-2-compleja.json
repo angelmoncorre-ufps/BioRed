@@ -1,0 +1,36 @@
+{
+  "name": "Prueba 2 - Red Compleja",
+  "description": "Red más compleja de 10 nodos con múltiples conexiones",
+  "nodes": [
+    { "id": "P1", "label": "Proteína A", "type": "kinase" },
+    { "id": "P2", "label": "Proteína B", "type": "receptor" },
+    { "id": "P3", "label": "Proteína C", "type": "enzyme" },
+    { "id": "P4", "label": "Proteína D", "type": "transcription" },
+    { "id": "P5", "label": "Proteína E", "type": "signaling" },
+    { "id": "P6", "label": "Proteína F", "type": "transport" },
+    { "id": "P7", "label": "Proteína G", "type": "structural" },
+    { "id": "P8", "label": "Proteína H", "type": "regulatory" },
+    { "id": "P9", "label": "Proteína I", "type": "catalytic" },
+    { "id": "P10", "label": "Proteína J", "type": "binding" }
+  ],
+  "edges": [
+    { "source": "P1", "target": "P2", "weight": 0.95 },
+    { "source": "P1", "target": "P3", "weight": 0.87 },
+    { "source": "P1", "target": "P4", "weight": 0.72 },
+    { "source": "P2", "target": "P3", "weight": 0.68 },
+    { "source": "P2", "target": "P5", "weight": 0.91 },
+    { "source": "P3", "target": "P4", "weight": 0.85 },
+    { "source": "P3", "target": "P6", "weight": 0.76 },
+    { "source": "P4", "target": "P5", "weight": 0.82 },
+    { "source": "P4", "target": "P7", "weight": 0.63 },
+    { "source": "P5", "target": "P6", "weight": 0.79 },
+    { "source": "P5", "target": "P8", "weight": 0.88 },
+    { "source": "P6", "target": "P7", "weight": 0.71 },
+    { "source": "P6", "target": "P9", "weight": 0.94 },
+    { "source": "P7", "target": "P8", "weight": 0.67 },
+    { "source": "P7", "target": "P10", "weight": 0.83 },
+    { "source": "P8", "target": "P9", "weight": 0.75 },
+    { "source": "P8", "target": "P10", "weight": 0.69 },
+    { "source": "P9", "target": "P10", "weight": 0.78 }
+  ]
+}

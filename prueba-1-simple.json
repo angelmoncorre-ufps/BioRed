@@ -1,0 +1,21 @@
+{
+  "name": "Prueba 1 - Red Simple",
+  "description": "Red pequeña de 7 nodos para pruebas básicas",
+  "nodes": [
+    { "id": "N1", "label": "Hub Central", "type": "hub" },
+    { "id": "N2", "label": "Nodo A", "type": "leaf" },
+    { "id": "N3", "label": "Nodo B", "type": "leaf" },
+    { "id": "N4", "label": "Nodo C", "type": "leaf" },
+    { "id": "N5", "label": "Nodo D", "type": "intermediate" },
+    { "id": "N6", "label": "Nodo E", "type": "leaf" },
+    { "id": "N7", "label": "Nodo F", "type": "leaf" }
+  ],
+  "edges": [
+    { "source": "N1", "target": "N2", "weight": 1.0 },
+    { "source": "N1", "target": "N3", "weight": 1.2 },
+    { "source": "N1", "target": "N4", "weight": 0.8 },
+    { "source": "N1", "target": "N5", "weight": 1.5 },
+    { "source": "N5", "target": "N6", "weight": 1.0 },
+    { "source": "N5", "target": "N7", "weight": 1.3 }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "Ejemplo 1 - Cadena Lineal",
+  "description": "Red en forma de cadena lineal, útil para probar el algoritmo Dijkstra",
+  "nodes": [
+    { "id": "A", "label": "Inicio", "type": "start" },
+    { "id": "B", "label": "Paso 1", "type": "intermediate" },
+    { "id": "C", "label": "Paso 2", "type": "intermediate" },
+    { "id": "D", "label": "Paso 3", "type": "intermediate" },
+    { "id": "E", "label": "Paso 4", "type": "intermediate" },
+    { "id": "F", "label": "Fin", "type": "end" }
+  ],
+  "edges": [
+    { "source": "A", "target": "B", "weight": 2.5 },
+    { "source": "B", "target": "C", "weight": 3.0 },
+    { "source": "C", "target": "D", "weight": 1.5 },
+    { "source": "D", "target": "E", "weight": 4.0 },
+    { "source": "E", "target": "F", "weight": 2.0 }
+  ]
+}

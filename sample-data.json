@@ -1,0 +1,38 @@
+{
+  "nodes": [
+    { "id": "TP53", "label": "TP53", "type": "tumor_suppressor" },
+    { "id": "BRCA1", "label": "BRCA1", "type": "dna_repair" },
+    { "id": "MDM2", "label": "MDM2", "type": "oncogene" },
+    { "id": "ATM", "label": "ATM", "type": "dna_repair" },
+    { "id": "PTEN", "label": "PTEN", "type": "tumor_suppressor" },
+    { "id": "AKT1", "label": "AKT1", "type": "kinase" },
+    { "id": "EGFR", "label": "EGFR", "type": "receptor" },
+    { "id": "MYC", "label": "MYC", "type": "oncogene" },
+    { "id": "CDK4", "label": "CDK4", "type": "kinase" },
+    { "id": "KRAS", "label": "KRAS", "type": "oncogene" },
+    { "id": "RAF1", "label": "RAF1", "type": "kinase" },
+    { "id": "MTOR", "label": "mTOR", "type": "kinase" }
+  ],
+  "edges": [
+    { "source": "TP53", "target": "MDM2", "weight": 0.95 },
+    { "source": "TP53", "target": "BRCA1", "weight": 0.88 },
+    { "source": "TP53", "target": "ATM", "weight": 0.82 },
+    { "source": "BRCA1", "target": "PTEN", "weight": 0.79 },
+    { "source": "ATM", "target": "PTEN", "weight": 0.73 },
+    { "source": "PTEN", "target": "AKT1", "weight": 0.91 },
+    { "source": "AKT1", "target": "EGFR", "weight": 0.85 },
+    { "source": "PTEN", "target": "MYC", "weight": 0.67 },
+    { "source": "MYC", "target": "KRAS", "weight": 0.78 },
+    { "source": "CDK4", "target": "TP53", "weight": 0.71 },
+    { "source": "MDM2", "target": "MYC", "weight": 0.64 },
+    { "source": "AKT1", "target": "MYC", "weight": 0.82 },
+    { "source": "EGFR", "target": "KRAS", "weight": 0.89 },
+    { "source": "BRCA1", "target": "ATM", "weight": 0.76 },
+    { "source": "RAF1", "target": "KRAS", "weight": 0.85 },
+    { "source": "RAF1", "target": "MTOR", "weight": 0.80 },
+    { "source": "MTOR", "target": "AKT1", "weight": 0.92 },
+    { "source": "MTOR", "target": "MYC", "weight": 0.75 },
+    { "source": "CDK4", "target": "MYC", "weight": 0.68 },
+    { "source": "EGFR", "target": "MTOR", "weight": 0.71 }
+  ]
+}

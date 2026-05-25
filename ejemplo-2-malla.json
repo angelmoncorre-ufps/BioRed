@@ -1,0 +1,29 @@
+{
+  "name": "Ejemplo 2 - Malla 3x3",
+  "description": "Red en malla 3x3 con múltiples caminos entre nodos",
+  "nodes": [
+    { "id": "M1", "label": "Nodo 1-1", "type": "corner" },
+    { "id": "M2", "label": "Nodo 1-2", "type": "edge" },
+    { "id": "M3", "label": "Nodo 1-3", "type": "corner" },
+    { "id": "M4", "label": "Nodo 2-1", "type": "edge" },
+    { "id": "M5", "label": "Centro", "type": "center" },
+    { "id": "M6", "label": "Nodo 2-3", "type": "edge" },
+    { "id": "M7", "label": "Nodo 3-1", "type": "corner" },
+    { "id": "M8", "label": "Nodo 3-2", "type": "edge" },
+    { "id": "M9", "label": "Nodo 3-3", "type": "corner" }
+  ],
+  "edges": [
+    { "source": "M1", "target": "M2", "weight": 1.0 },
+    { "source": "M2", "target": "M3", "weight": 1.0 },
+    { "source": "M1", "target": "M4", "weight": 1.0 },
+    { "source": "M2", "target": "M5", "weight": 1.0 },
+    { "source": "M3", "target": "M6", "weight": 1.0 },
+    { "source": "M4", "target": "M5", "weight": 1.0 },
+    { "source": "M5", "target": "M6", "weight": 1.0 },
+    { "source": "M4", "target": "M7", "weight": 1.0 },
+    { "source": "M5", "target": "M8", "weight": 1.0 },
+    { "source": "M6", "target": "M9", "weight": 1.0 },
+    { "source": "M7", "target": "M8", "weight": 1.0 },
+    { "source": "M8", "target": "M9", "weight": 1.0 }
+  ]
+}
