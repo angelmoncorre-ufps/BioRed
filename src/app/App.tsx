@@ -6,6 +6,17 @@ import { TopBar } from './components/TopBar';
 import { NetworkCanvas } from './components/NetworkCanvas';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { SimulationReport } from './components/SimulationReport';
+import { GraphJsonEditor } from './components/GraphJsonEditor';
+import { NetworkOverview } from './components/NetworkOverview';
+import { useApp } from './context/AppContext';
+
+function DashboardMain() {
+  const { dashboardPanel } = useApp();
+
+  if (dashboardPanel === 'json') return <GraphJsonEditor />;
+  if (dashboardPanel === 'overview') return <NetworkOverview />;
+  return <NetworkCanvas />;
+}
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'dashboard' | 'report'>('dashboard');
@@ -19,7 +30,7 @@ export default function App() {
             <TopBar onNavigate={setCurrentView} />
             <div className="flex-1 flex overflow-hidden">
               <Sidebar onNavigate={setCurrentView} />
-              <NetworkCanvas />
+              <DashboardMain />
               <AnalysisPanel onNavigate={setCurrentView} />
             </div>
           </>

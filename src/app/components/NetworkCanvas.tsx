@@ -2,274 +2,267 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import cytoscape from 'cytoscape';
 import { ZoomIn, ZoomOut, Maximize2, Move, AlertTriangle, Navigation, GitBranch } from 'lucide-react';
 import { useApp, type NetworkNode, type NetworkEdge } from '../context/AppContext';
-import { parseJSONToCytoscape, analyzeRobustness, getComponentColor, createSampleData, dijkstra, type GraphNode, type GraphEdge } from '../logic/networkEngine';
+import { analyzeRobustness, getComponentColor, dijkstra, kruskalMST, type GraphNode, type GraphEdge } from '../logic/networkEngine';
 import type { Core, NodeSingular, EdgeSingular } from 'cytoscape';
+type AlgorithmMode = 'none' | 'dijkstra' | 'kruskal';
+
+const CYTOSCAPE_STYLES: cytoscape.Stylesheet[] = [
+  {
+    selector: 'node',
+    style: {
+      'background-color': '#10b981',
+      label: 'data(label)',
+      color: '#ffffff',
+      'font-size': '12px',
+      'text-valign': 'center',
+      'text-halign': 'center',
+      width: 'mapData(degree, 1, 10, 35, 60)',
+      height: 'mapData(degree, 1, 10, 35, 60)',
+      'border-width': '2px',
+      'border-color': '#1e293b',
+      'text-outline-color': '#1e293b',
+      'text-outline-width': '2px',
+    },
+  },
+  {
+    selector: 'node[degree >= 5]',
+    style: {
+      'background-color': '#059669',
+      'border-color': '#047857',
+      'border-width': '3px',
+    },
+  },
+  {
+    selector: 'node[degree >= 8]',
+    style: {
+      'background-color': '#047857',
+      'border-color': '#065f46',
+      'border-width': '4px',
+    },
+  },
+  {
+    selector: 'node[?isDijkstraStart]',
+    style: {
+      'background-color': '#3b82f6',
+      'border-color': '#2563eb',
+      'border-width': '4px',
+    },
+  },
+  {
+    selector: 'node[?isDijkstraEnd]',
+    style: {
+      'background-color': '#8b5cf6',
+      'border-color': '#7c3aed',
+      'border-width': '4px',
+    },
+  },
+  {
+    selector: 'node[?markedForElimination]',
+    style: {
+      'background-color': '#f97316',
+      'border-color': '#ea580c',
+      'border-width': '4px',
+      'border-style': 'dashed',
+    },
+  },
+  {
+    selector: 'edge.dijkstra-path',
+    style: {
+      'line-color': '#3b82f6',
+      width: 4,
+      opacity: 1,
+      'line-style': 'solid',
+    },
+  },
+  {
+    selector: 'edge.mst-edge',
+    style: {
+      'line-color': '#f59e0b',
+      width: 4,
+      opacity: 1,
+      'line-style': 'solid',
+    },
+  },
+  {
+    selector: 'node[type="active"]',
+    style: { 'background-color': '#06b6d4', 'border-color': '#0891b2' },
+  },
+  {
+    selector: 'node[type="perturbed"]',
+    style: { 'background-color': '#ef4444', 'border-color': '#dc2626' },
+  },
+  {
+    selector: 'node[type="eliminated"]',
+    style: {
+      'background-color': '#ef4444',
+      'border-color': '#7f1d1d',
+      'border-width': '3px',
+      shape: 'ellipse',
+    },
+  },
+  {
+    selector: 'node:selected',
+    style: { 'border-width': '4px', 'border-color': '#06b6d4' },
+  },
+  {
+    selector: 'edge',
+    style: {
+      width: 2,
+      'line-color': '#475569',
+      'target-arrow-color': '#475569',
+      'target-arrow-shape': 'none',
+      'curve-style': 'bezier',
+      opacity: 0.8,
+    },
+  },
+  {
+    selector: 'edge.broken-edge',
+    style: {
+      'line-style': 'dashed',
+      opacity: 0.3,
+      'line-color': '#64748b',
+    },
+  },
+  {
+    selector: '.mst-edge',
+    style: { 'line-color': '#06b6d4', width: 3 },
+  },
+];
+
+function runGraphLayout(cy: Core, nodeCount: number, edgeCount: number) {
+  const isLargeGraph = nodeCount > 15 || edgeCount > 30;
+  const layoutOptions = isLargeGraph
+    ? {
+        name: 'cose',
+        fit: true,
+        padding: 20,
+        randomize: true,
+        componentSpacing: 80,
+        nodeRepulsion: 400000,
+        idealEdgeLength: 80,
+        nodeOverlap: 20,
+        gravity: 80,
+        numIter: 1000,
+      }
+    : {
+        name: 'cose',
+        fit: true,
+        padding: 40,
+        randomize: false,
+        componentSpacing: 100,
+        nodeRepulsion: 400000,
+        idealEdgeLength: 120,
+        nodeOverlap: 10,
+        gravity: 80,
+      };
+  cy.layout(layoutOptions as cytoscape.LayoutOptions).run();
+}
 
 export function NetworkCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
+  const dijkstraPendingRef = useRef<string | null>(null);
+  const graphSignatureRef = useRef('');
+
   const [dijkstraPath, setDijkstraPath] = useState<string[] | null>(null);
   const [dijkstraDistance, setDijkstraDistance] = useState<number | null>(null);
-  const [shiftPressed, setShiftPressed] = useState(false);
-  const [firstNodeId, setFirstNodeId] = useState<string | null>(null);
-  
-  const { 
-    nodes, 
-    edges, 
-    simulationState, 
-    eliminatedNodeIds,
-    setCy, 
-    setSelectedNode,
-    selectedNode,
-    activeAlgorithm,
-    runKruskal
-  } = useApp();
-  
   const [mstEdgeIds, setMstEdgeIds] = useState<string[]>([]);
 
-  // Initialize Cytoscape
+  const {
+    nodes,
+    edges,
+    simulationState,
+    eliminatedNodeIds,
+    setCy,
+    setSelectedNode,
+    activeAlgorithm,
+    dragNodesEnabled,
+    setDragNodesEnabled,
+    eliminationTargets,
+    toggleEliminationTarget,
+    dijkstraRandomResult,
+  } = useApp();
+
+  const handlersRef = useRef({
+    activeAlgorithm: 'none' as AlgorithmMode,
+    nodes: [] as NetworkNode[],
+    edges: [] as NetworkEdge[],
+    toggleEliminationTarget,
+    setSelectedNode,
+    setDijkstraPath,
+    setDijkstraDistance,
+  });
+
+  handlersRef.current = {
+    activeAlgorithm,
+    nodes,
+    edges,
+    toggleEliminationTarget,
+    setSelectedNode,
+    setDijkstraPath,
+    setDijkstraDistance,
+  };
+
+  const clearDijkstraVisuals = useCallback((cy: Core) => {
+    dijkstraPendingRef.current = null;
+    cy.nodes().forEach((n: NodeSingular) => {
+      n.data('isDijkstraStart', false);
+      n.data('isDijkstraEnd', false);
+    });
+    cy.edges().removeClass('dijkstra-path');
+  }, []);
+
+  // Crear Cytoscape una sola vez (sin layout ni datos iniciales)
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // If no nodes/edges loaded yet, use sample data
-    let elements: cytoscape.ElementsDefinition;
-    if (nodes.length === 0 || edges.length === 0) {
-      const sample = createSampleData();
-      elements = {
-        nodes: sample.nodes as unknown as cytoscape.NodeDefinition[],
-        edges: sample.edges as unknown as cytoscape.EdgeDefinition[]
-      };
-    } else {
-      elements = {
-        nodes: nodes.map((n: NetworkNode) => ({
-          data: { 
-            id: n.id, 
-            label: n.label,
-            type: n.type
-          }
-        })),
-        edges: edges.map((e: NetworkEdge, i: number) => ({
-          data: { 
-            id: `edge-${i}`,
-            source: e.source, 
-            target: e.target,
-            weight: e.weight || 1
-          }
-        }))
-      };
-    }
-
-    cyRef.current = cytoscape({
+    const cy = cytoscape({
       container: containerRef.current,
-      elements: elements,
-      style: [
-        {
-          selector: 'node',
-          style: {
-            'background-color': '#10b981',
-            'label': 'data(label)',
-            'color': '#ffffff',
-            'font-size': '12px',
-            'text-valign': 'center',
-            'text-halign': 'center',
-            'width': 'mapData(degree, 1, 10, 35, 60)',
-            'height': 'mapData(degree, 1, 10, 35, 60)',
-            'border-width': '2px',
-            'border-color': '#1e293b',
-            'text-outline-color': '#1e293b',
-            'text-outline-width': '2px'
-          }
-        },
-        {
-          selector: 'node[degree >= 5]',
-          style: {
-            'background-color': '#059669',
-            'border-color': '#047857',
-            'border-width': '3px'
-          }
-        },
-        {
-          selector: 'node[degree >= 8]',
-          style: {
-            'background-color': '#047857',
-            'border-color': '#065f46',
-            'border-width': '4px'
-          }
-        },
-        {
-          selector: 'node[?isDijkstraStart]',
-          style: {
-            'background-color': '#3b82f6',
-            'border-color': '#2563eb',
-            'border-width': '4px'
-          }
-        },
-        {
-          selector: 'node[?isDijkstraEnd]',
-          style: {
-            'background-color': '#8b5cf6',
-            'border-color': '#7c3aed',
-            'border-width': '4px'
-          }
-        },
-        {
-          selector: 'edge.dijkstra-path',
-          style: {
-            'line-color': '#3b82f6',
-            'width': 4,
-            'opacity': 1,
-            'line-style': 'solid'
-          }
-        },
-        {
-          selector: 'edge.mst-edge',
-          style: {
-            'line-color': '#f59e0b',
-            'width': 4,
-            'opacity': 1,
-            'line-style': 'solid'
-          }
-        },
-        {
-          selector: 'node[type="active"]',
-          style: {
-            'background-color': '#06b6d4',
-            'border-color': '#0891b2'
-          }
-        },
-        {
-          selector: 'node[type="perturbed"]',
-          style: {
-            'background-color': '#ef4444',
-            'border-color': '#dc2626'
-          }
-        },
-        {
-          selector: 'node[type="eliminated"]',
-          style: {
-            'background-color': '#ef4444',
-            'border-color': '#7f1d1d',
-            'border-width': '3px',
-            'shape': 'ellipse'
-          }
-        },
-        {
-          selector: 'node:selected',
-          style: {
-            'border-width': '4px',
-            'border-color': '#06b6d4'
-          }
-        },
-        {
-          selector: 'edge',
-          style: {
-            'width': 2,
-            'line-color': '#475569',
-            'target-arrow-color': '#475569',
-            'target-arrow-shape': 'none',
-            'curve-style': 'bezier',
-            'opacity': 0.8
-          }
-        },
-        {
-          selector: 'edge.is-dashed',
-          style: {
-            'line-style': 'dashed',
-            'line-dash-pattern': [5, 5],
-            'line-dash-offset': 0,
-            'opacity': 0.4
-          }
-        },
-        {
-          selector: 'edge.broken-edge',
-          style: {
-            'line-style': 'dashed',
-            'opacity': 0.3,
-            'line-color': '#64748b'
-          }
-        },
-        {
-          selector: '.mst-edge',
-          style: {
-            'line-color': '#06b6d4',
-            'width': 3
-          }
-        }
-      ],
-      layout: {
-        name: 'cose',
-        padding: 20,
-        nodeOverlap: 20,
-        idealEdgeLength: 100,
-        componentSpacing: 100,
-        nodeRepulsion: 400000,
-        edgeElasticity: 100,
-        nestingFactor: 5,
-        gravity: 80,
-        numIter: 1000,
-        initialTemp: 200,
-        coolingFactor: 0.95,
-        minTemp: 1.0
-      } as cytoscape.LayoutOptions,
+      elements: [],
+      style: CYTOSCAPE_STYLES,
+      layout: { name: 'preset' },
       minZoom: 0.3,
       maxZoom: 3,
-      wheelSensitivity: 0.3
+      wheelSensitivity: 0.3,
     });
 
-    // Track shift key for Dijkstra mode
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') setShiftPressed(true);
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') setShiftPressed(false);
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('keyup', handleKeyUp);
-
-    // Tap event for node selection with Dijkstra support
-    cyRef.current.on('tap', 'node', (evt: cytoscape.EventObject) => {
+    cy.on('tap', 'node', (evt: cytoscape.EventObject) => {
+      const h = handlersRef.current;
       const node = evt.target as NodeSingular;
       const nodeId = node.id();
-      
-      // Dijkstra mode with Shift key OR when Dijkstra algorithm is active from menu
-      if (evt.originalEvent?.shiftKey || shiftPressed || activeAlgorithm === 'dijkstra') {
-        if (!firstNodeId) {
-          // First node selected
-          setFirstNodeId(nodeId);
+      const isDijkstraMode =
+        evt.originalEvent?.shiftKey || h.activeAlgorithm === 'dijkstra';
+
+      if (isDijkstraMode) {
+        const pending = dijkstraPendingRef.current;
+        if (!pending) {
+          dijkstraPendingRef.current = nodeId;
           node.data('isDijkstraStart', true);
           node.data('isDijkstraEnd', false);
-        } else if (firstNodeId !== nodeId) {
-          // Second node selected - calculate path
-          const graphNodes: GraphNode[] = nodes.map((n: NetworkNode) => ({ id: n.id, label: n.label }));
-          const graphEdges: GraphEdge[] = edges.map((e: NetworkEdge, i: number) => ({ 
-            id: `edge-${i}`, 
-            source: e.source, 
-            target: e.target, 
-            weight: e.weight || 1 
+        } else if (pending !== nodeId) {
+          const graphNodes: GraphNode[] = h.nodes.map((n) => ({ id: n.id, label: n.label }));
+          const graphEdges: GraphEdge[] = h.edges.map((e, i) => ({
+            id: e.id || `edge-${i}`,
+            source: e.source,
+            target: e.target,
+            weight: e.weight || 1,
           }));
-          
-          const result = dijkstra(graphNodes, graphEdges, firstNodeId, nodeId);
-          
-          if (result) {
-            setDijkstraPath(result.path);
-            setDijkstraDistance(result.distance);
-            
-            // Highlight nodes
-            cyRef.current?.nodes().forEach((n: NodeSingular) => {
-              n.data('isDijkstraStart', false);
-              n.data('isDijkstraEnd', false);
-            });
-            const startNode = cyRef.current?.getElementById(firstNodeId);
-            const endNode = cyRef.current?.getElementById(nodeId);
-            startNode?.data('isDijkstraStart', true);
-            endNode?.data('isDijkstraEnd', true);
-            
-            // Highlight path edges
-            cyRef.current?.edges().removeClass('dijkstra-path');
+
+          const result = dijkstra(graphNodes, graphEdges, pending, nodeId);
+
+          if (result && cyRef.current) {
+            h.setDijkstraPath(result.path);
+            h.setDijkstraDistance(result.distance);
+
+            clearDijkstraVisuals(cyRef.current);
+            cyRef.current.getElementById(pending)?.data('isDijkstraStart', true);
+            cyRef.current.getElementById(nodeId)?.data('isDijkstraEnd', true);
+
+            cyRef.current.edges().removeClass('dijkstra-path');
             for (let i = 0; i < result.path.length - 1; i++) {
               const source = result.path[i];
               const target = result.path[i + 1];
-              const edge = cyRef.current?.edges().filter((e: EdgeSingular) => {
+              const edge = cyRef.current.edges().filter((e: EdgeSingular) => {
                 const s = e.data('source');
                 const t = e.data('target');
                 return (s === source && t === target) || (s === target && t === source);
@@ -277,177 +270,194 @@ export function NetworkCanvas() {
               edge?.addClass('dijkstra-path');
             }
           }
-          
-          setFirstNodeId(null);
+          dijkstraPendingRef.current = null;
         }
       } else {
-        // Normal selection
-        setSelectedNode({
+        h.toggleEliminationTarget(nodeId);
+        h.setSelectedNode({
           id: nodeId,
           label: node.data('label') || nodeId,
           type: node.data('type') || 'healthy',
-          data: node.data()
+          data: node.data(),
         });
       }
     });
 
-    // Tap on background to deselect and clear Dijkstra
-    cyRef.current.on('tap', (evt: cytoscape.EventObject) => {
-      if (evt.target === cyRef.current) {
-        setSelectedNode(null);
-        setFirstNodeId(null);
-        setDijkstraPath(null);
-        setDijkstraDistance(null);
-        cyRef.current?.nodes().forEach((n: NodeSingular) => {
-          n.data('isDijkstraStart', false);
-          n.data('isDijkstraEnd', false);
-        });
-        cyRef.current?.edges().removeClass('dijkstra-path');
-      }
+    cy.on('tap', (evt: cytoscape.EventObject) => {
+      if (evt.target !== cy) return;
+      const h = handlersRef.current;
+      h.setSelectedNode(null);
+      h.setDijkstraPath(null);
+      h.setDijkstraDistance(null);
+      if (cyRef.current) clearDijkstraVisuals(cyRef.current);
     });
 
-    setCy(cyRef.current);
+    cyRef.current = cy;
+    setCy(cy);
 
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('keyup', handleKeyUp);
-      cyRef.current?.destroy();
+      cy.destroy();
       cyRef.current = null;
       setCy(null);
     };
-  }, [nodes, edges, shiftPressed, firstNodeId, activeAlgorithm]);
+  }, [setCy, clearDijkstraVisuals]);
 
-  // Update graph when nodes/edges change
+  // Recargar elementos solo cuando cambian los datos del grafo (no al cambiar algoritmo)
   useEffect(() => {
     if (!cyRef.current || nodes.length === 0) return;
 
+    const signature = `${nodes.map((n) => n.id).join(',')}|${edges.map((e) => `${e.source}-${e.target}`).join(',')}`;
+    if (signature === graphSignatureRef.current) return;
+    graphSignatureRef.current = signature;
+
     const cy = cyRef.current;
     cy.elements().remove();
-    
-    // Clear Dijkstra state when loading new graph
     setDijkstraPath(null);
     setDijkstraDistance(null);
-    setFirstNodeId(null);
+    dijkstraPendingRef.current = null;
 
-    // Calculate degrees for all nodes
     const nodeDegrees = new Map<string, number>();
-    edges.forEach((edge: NetworkEdge) => {
+    edges.forEach((edge) => {
       nodeDegrees.set(edge.source, (nodeDegrees.get(edge.source) || 0) + 1);
       nodeDegrees.set(edge.target, (nodeDegrees.get(edge.target) || 0) + 1);
     });
 
-    // Add nodes with degree info
-    nodes.forEach((node: NetworkNode) => {
-      const degree = nodeDegrees.get(node.id) || 0;
+    nodes.forEach((node) => {
       cy.add({
         group: 'nodes',
-        data: { 
-          id: node.id, 
+        data: {
+          id: node.id,
           label: node.label,
           type: node.type,
-          degree: degree,
+          degree: nodeDegrees.get(node.id) || 0,
           isDijkstraStart: false,
-          isDijkstraEnd: false
-        }
+          isDijkstraEnd: false,
+          markedForElimination: eliminationTargets.includes(node.id),
+        },
       });
     });
 
-    // Add edges
-    edges.forEach((edge: NetworkEdge, i: number) => {
+    edges.forEach((edge, i) => {
       cy.add({
         group: 'edges',
-        data: { 
-          id: `edge-${i}`,
-          source: edge.source, 
+        data: {
+          id: edge.id || `edge-${i}`,
+          source: edge.source,
           target: edge.target,
-          weight: edge.weight || 1
-        }
+          weight: edge.weight || 1,
+        },
       });
     });
 
-    // Choose layout based on graph size
-    const isLargeGraph = nodes.length > 15 || edges.length > 30;
-    const layoutOptions = isLargeGraph ? {
-      name: 'cose',
-      fit: true,
-      padding: 20,
-      randomize: true,
-      componentSpacing: 80,
-      nodeRepulsion: 400000,
-      idealEdgeLength: 80,
-      nodeOverlap: 20,
-      gravity: 80,
-      numIter: 1000
-    } : {
-      name: 'cose',
-      fit: true,
-      padding: 40,
-      randomize: false,
-      componentSpacing: 100,
-      nodeRepulsion: 400000,
-      idealEdgeLength: 120,
-      nodeOverlap: 10,
-      gravity: 80
-    };
-    
-    const layout = cy.layout(layoutOptions as cytoscape.LayoutOptions);
-    layout.run();
-
+    runGraphLayout(cy, nodes.length, edges.length);
   }, [nodes, edges]);
 
-  // Apply Kruskal MST visualization
+  useEffect(() => {
+    if (!cyRef.current) return;
+    const targetSet = new Set(eliminationTargets);
+    cyRef.current.nodes().forEach((n: NodeSingular) => {
+      n.data('markedForElimination', targetSet.has(n.id()));
+    });
+  }, [eliminationTargets]);
+
+  useEffect(() => {
+    if (!cyRef.current) return;
+    const cy = cyRef.current;
+    if (dragNodesEnabled) cy.nodes().grabify();
+    else cy.nodes().ungrabify();
+  }, [dragNodesEnabled, nodes.length]);
+
+  // Kruskal: solo resaltar aristas, sin recrear el grafo
   useEffect(() => {
     if (!cyRef.current || nodes.length === 0) return;
     const cy = cyRef.current;
 
-    // Clear previous MST highlighting
     cy.edges().removeClass('mst-edge');
+    setMstEdgeIds([]);
 
     if (activeAlgorithm === 'kruskal') {
-      const edgeIds = runKruskal();
+      const graphNodes: GraphNode[] = nodes.map((n) => ({ id: n.id, label: n.label }));
+      const graphEdges: GraphEdge[] = edges.map((e, i) => ({
+        id: e.id || `edge-${i}`,
+        source: e.source,
+        target: e.target,
+        weight: e.weight || 1,
+      }));
+      const edgeIds = kruskalMST(graphNodes, graphEdges);
       setMstEdgeIds(edgeIds);
-      
-      // Highlight MST edges
-      edgeIds.forEach((edgeId: string) => {
-        const edge = cy.getElementById(edgeId);
-        if (edge) {
-          edge.addClass('mst-edge');
-        }
+      edgeIds.forEach((edgeId) => {
+        cy.getElementById(edgeId)?.addClass('mst-edge');
       });
     }
-  }, [activeAlgorithm, nodes, edges, runKruskal]);
+  }, [activeAlgorithm, nodes, edges]);
 
-  // Apply Post-Ataque visualization
+  // Al desactivar Dijkstra, limpiar resaltados
+  useEffect(() => {
+    if (activeAlgorithm === 'dijkstra') return;
+    setDijkstraPath(null);
+    setDijkstraDistance(null);
+    if (cyRef.current) clearDijkstraVisuals(cyRef.current);
+  }, [activeAlgorithm, clearDijkstraVisuals]);
+
+  // Manejar resultado de Dijkstra aleatorio
+  useEffect(() => {
+    if (!dijkstraRandomResult || !cyRef.current) return;
+
+    const cy = cyRef.current;
+    const { path, distance, startNode, endNode } = dijkstraRandomResult;
+
+    // Limpiar visuales previas
+    clearDijkstraVisuals(cy);
+
+    // Marcar nodos de inicio y fin
+    cy.getElementById(startNode)?.data('isDijkstraStart', true);
+    cy.getElementById(endNode)?.data('isDijkstraEnd', true);
+
+    // Marcar aristas del camino
+    cy.edges().removeClass('dijkstra-path');
+    for (let i = 0; i < path.length - 1; i++) {
+      const source = path[i];
+      const target = path[i + 1];
+      const edge = cy.edges().filter((e: EdgeSingular) => {
+        const s = e.data('source');
+        const t = e.data('target');
+        return (s === source && t === target) || (s === target && t === source);
+      });
+      edge?.addClass('dijkstra-path');
+    }
+
+    // Actualizar estado local
+    setDijkstraPath(path);
+    setDijkstraDistance(distance);
+  }, [dijkstraRandomResult, clearDijkstraVisuals]);
+
   useEffect(() => {
     if (!cyRef.current) return;
     const cy = cyRef.current;
 
     if (simulationState === 'post-ataque' && eliminatedNodeIds.length > 0) {
-      // Build graph data for analysis
-      const graphNodes = nodes.map((n: NetworkNode) => ({ id: n.id, label: n.label }));
-      const graphEdges = edges.map((e: NetworkEdge, i: number) => ({ 
-        id: `edge-${i}`, 
-        source: e.source, 
-        target: e.target, 
-        weight: e.weight || 1 
+      const graphNodes = nodes.map((n) => ({ id: n.id, label: n.label }));
+      const graphEdges = edges.map((e, i) => ({
+        id: e.id || `edge-${i}`,
+        source: e.source,
+        target: e.target,
+        weight: e.weight || 1,
       }));
 
       const analysis = analyzeRobustness(graphNodes, graphEdges, eliminatedNodeIds);
 
-      // Mark eliminated nodes with 'X' visual
-      eliminatedNodeIds.forEach((nodeId: string) => {
+      eliminatedNodeIds.forEach((nodeId) => {
         const node = cy.getElementById(nodeId);
         if (node) {
           node.addClass('eliminated');
           node.style({
             'background-color': '#ef4444',
             'border-color': '#7f1d1d',
-            'border-width': '3px'
+            'border-width': '3px',
           });
         }
       });
 
-      // Color components differently
       analysis.componentMap.forEach((componentIndex, nodeId) => {
         const node = cy.getElementById(nodeId);
         if (node && !eliminatedNodeIds.includes(nodeId)) {
@@ -457,7 +467,6 @@ export function NetworkCanvas() {
         }
       });
 
-      // Mark broken edges as dashed
       cy.edges().forEach((edge: EdgeSingular) => {
         const source = edge.data('source');
         const target = edge.data('target');
@@ -465,18 +474,16 @@ export function NetworkCanvas() {
           edge.addClass('broken-edge');
         }
       });
-
     } else {
-      // Reset styles
       cy.nodes().removeClass('eliminated');
       cy.edges().removeClass('broken-edge');
-      
+
       cy.nodes().forEach((node: NodeSingular) => {
         const type = node.data('type') || 'healthy';
         const colors: Record<string, string> = {
           healthy: '#10b981',
           perturbed: '#ef4444',
-          active: '#06b6d4'
+          active: '#06b6d4',
         };
         node.style('background-color', colors[type] || '#10b981');
         node.style('border-color', '#1e293b');
@@ -485,7 +492,7 @@ export function NetworkCanvas() {
 
       cy.edges().style({
         'line-style': 'solid',
-        'opacity': 0.8
+        opacity: 0.8,
       });
     }
   }, [simulationState, eliminatedNodeIds, nodes, edges]);
@@ -504,6 +511,15 @@ export function NetworkCanvas() {
 
   return (
     <div className="relative flex-1 bg-slate-200 dark:bg-[#0a0f1e] flex flex-col overflow-hidden">
+      {simulationState === 'normal' && eliminationTargets.length > 0 && (
+        <div className="absolute top-4 left-4 z-10 bg-orange-50/95 dark:bg-orange-950/90 backdrop-blur-sm border border-orange-300 dark:border-orange-700/50 px-4 py-2 rounded-lg shadow-lg">
+          <span className="text-orange-700 dark:text-orange-300 text-sm font-medium">
+            {eliminationTargets.length} nodo{eliminationTargets.length !== 1 ? 's' : ''} marcado
+            {eliminationTargets.length !== 1 ? 's' : ''} para eliminar — pulsa &quot;Ejecutar simulación&quot; cuando termines
+          </span>
+        </div>
+      )}
+
       {simulationState === 'post-ataque' && (
         <div className="absolute top-4 left-4 z-10 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm border border-slate-300 dark:border-slate-700/50 px-4 py-2 rounded-lg shadow-lg">
           <div className="flex items-center gap-2">
@@ -513,13 +529,8 @@ export function NetworkCanvas() {
         </div>
       )}
 
-      <div 
-        ref={containerRef} 
-        className="flex-1 w-full h-full"
-        style={{ minHeight: '400px' }}
-      />
+      <div ref={containerRef} className="flex-1 w-full h-full" style={{ minHeight: '400px' }} />
 
-      {/* Dijkstra Result Panel */}
       {dijkstraPath && dijkstraDistance !== null && (
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 bg-blue-50/90 dark:bg-blue-900/90 backdrop-blur-sm border border-blue-300 dark:border-blue-700/50 px-4 py-3 rounded-lg shadow-lg">
           <div className="flex items-center gap-2">
@@ -528,16 +539,15 @@ export function NetworkCanvas() {
               Camino más corto: {dijkstraDistance.toFixed(2)} unidades
             </span>
           </div>
-          <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-            {dijkstraPath.join(' → ')}
-          </div>
+          <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">{dijkstraPath.join(' → ')}</div>
           <div className="text-xs text-blue-500 dark:text-blue-500 mt-2">
-            {activeAlgorithm === 'dijkstra' ? 'Modo Dijkstra activo - Click en dos nodos' : 'Presiona Shift + Click en dos nodos para calcular'}
+            {activeAlgorithm === 'dijkstra'
+              ? 'Modo Dijkstra activo - Click en dos nodos'
+              : 'Presiona Shift + Click en dos nodos para calcular'}
           </div>
         </div>
       )}
 
-      {/* Kruskal MST Result Panel */}
       {activeAlgorithm === 'kruskal' && mstEdgeIds.length > 0 && (
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 bg-amber-50/90 dark:bg-amber-900/90 backdrop-blur-sm border border-amber-300 dark:border-amber-700/50 px-4 py-3 rounded-lg shadow-lg">
           <div className="flex items-center gap-2">
@@ -549,37 +559,38 @@ export function NetworkCanvas() {
           <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
             {mstEdgeIds.length} aristas seleccionadas de {edges.length} totales
           </div>
-          <div className="text-xs text-amber-500 dark:text-amber-500 mt-2">
-            Las aristas en naranja forman el MST
-          </div>
+          <div className="text-xs text-amber-500 dark:text-amber-500 mt-2">Las aristas en naranja forman el MST</div>
         </div>
       )}
 
-      {/* Legend */}
       <div className="absolute top-4 right-4 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm border border-slate-300 dark:border-slate-700/50 px-4 py-3 rounded-lg shadow-lg space-y-2 max-w-[200px]">
         <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">Leyenda</div>
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-lg shadow-emerald-400/50"></div>
+          <div className="w-3 h-3 rounded-full bg-emerald-500" />
           <span className="text-slate-700 dark:text-slate-300 text-xs">Nodo (grado bajo)</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-emerald-600 shadow-lg shadow-emerald-400/50"></div>
+          <div className="w-4 h-4 rounded-full bg-emerald-600" />
           <span className="text-slate-700 dark:text-slate-300 text-xs">Hub (grado alto)</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-cyan-500 shadow-lg shadow-cyan-400/50"></div>
+          <div className="w-3 h-3 rounded-full bg-cyan-500" />
           <span className="text-slate-700 dark:text-slate-300 text-xs">Selección Dijkstra</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-purple-500 shadow-lg shadow-purple-400/50"></div>
+          <div className="w-3 h-3 rounded-full bg-purple-500" />
           <span className="text-slate-700 dark:text-slate-300 text-xs">Destino Dijkstra</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-red-500 shadow-lg shadow-red-400/50"></div>
+          <div className="w-3 h-3 rounded-full bg-orange-500 border-2 border-dashed border-orange-600" />
+          <span className="text-slate-700 dark:text-slate-300 text-xs">Marcado para eliminar</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full bg-red-500" />
           <span className="text-slate-700 dark:text-slate-300 text-xs">Nodo Eliminado</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-6 h-1 rounded bg-amber-500 shadow-lg shadow-amber-400/50"></div>
+          <div className="w-6 h-1 rounded bg-amber-500" />
           <span className="text-slate-700 dark:text-slate-300 text-xs">Arista MST (Kruskal)</span>
         </div>
         {simulationState === 'post-ataque' && (
@@ -587,15 +598,15 @@ export function NetworkCanvas() {
             <div className="border-t border-slate-200 dark:border-slate-700/50 pt-2 mt-2">
               <span className="text-slate-500 dark:text-slate-400 text-xs">Componentes Conexas:</span>
             </div>
-            {[0, 1, 2].map(i => (
+            {[0, 1, 2].map((i) => (
               <div key={i} className="flex items-center gap-2">
-                <div 
-                  className="w-3 h-3 rounded-full shadow-lg" 
-                  style={{ 
+                <div
+                  className="w-3 h-3 rounded-full"
+                  style={{
                     backgroundColor: getComponentColor(i),
-                    boxShadow: `0 0 8px ${getComponentColor(i)}80`
+                    boxShadow: `0 0 8px ${getComponentColor(i)}80`,
                   }}
-                ></div>
+                />
                 <span className="text-slate-700 dark:text-slate-300 text-xs">Componente {i + 1}</span>
               </div>
             ))}
@@ -603,32 +614,36 @@ export function NetworkCanvas() {
         )}
       </div>
 
-      {/* Controls */}
       <div className="absolute bottom-6 right-6 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm border border-slate-300 dark:border-slate-700/50 rounded-lg shadow-lg p-2 flex gap-2">
         <button
           onClick={handleZoomIn}
-          className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors"
+          className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded text-slate-600 dark:text-slate-300"
           title="Acercar"
         >
           <ZoomIn className="w-5 h-5" />
         </button>
         <button
           onClick={handleZoomOut}
-          className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors"
+          className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded text-slate-600 dark:text-slate-300"
           title="Alejar"
         >
           <ZoomOut className="w-5 h-5" />
         </button>
         <button
           onClick={handleFit}
-          className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors"
+          className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded text-slate-600 dark:text-slate-300"
           title="Ajustar a pantalla"
         >
           <Maximize2 className="w-5 h-5" />
         </button>
-        <button 
-          className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700/50 rounded text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors cursor-grab active:cursor-grabbing" 
-          title="Arrastrar para mover"
+        <button
+          onClick={() => setDragNodesEnabled(!dragNodesEnabled)}
+          className={`p-2 rounded transition-colors ${
+            dragNodesEnabled
+              ? 'bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300'
+              : 'hover:bg-slate-200 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300'
+          }`}
+          title={dragNodesEnabled ? 'Desactivar arrastre de nodos' : 'Activar arrastre de nodos'}
         >
           <Move className="w-5 h-5" />
         </button>
