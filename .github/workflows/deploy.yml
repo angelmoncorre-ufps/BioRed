@@ -31,11 +31,11 @@ jobs:
 
       - name: Set BASE_PATH for main
         if: github.ref_name == 'main'
-        run: echo "BASE_PATH=/BioRed/main/" >> $GITHUB_ENV
+        run: echo "BASE_PATH=/BioRed/" >> $GITHUB_ENV
 
       - name: Set BASE_PATH for testing
         if: github.ref_name == 'testing'
-        run: echo "BASE_PATH=/BioRed/testing/" >> $GITHUB_ENV
+        run: echo "BASE_PATH=/BioRed/" >> $GITHUB_ENV
 
       - name: Build
         run: pnpm build
@@ -48,26 +48,6 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
           publish_branch: gh-pages
-          destination_dir: ${{ github.ref_name }}
           force_orphan: true
-          user_name: 'github-actions[bot]'
-          user_email: 'github-actions[bot]@users.noreply.github.com'
-
-      - name: Create redirect index.html for testing
-        if: github.ref_name == 'testing'
-        run: |
-          mkdir -p redirect
-          echo '<!DOCTYPE html>' > redirect/index.html
-          echo '<html><head><meta http-equiv="refresh" content="0;url=/BioRed/testing/"></head></html>' >> redirect/index.html
-
-      - name: Deploy redirect to root
-        if: github.ref_name == 'testing'
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./redirect
-          publish_branch: gh-pages
-          destination_dir: .
-          force_orphan: false
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
