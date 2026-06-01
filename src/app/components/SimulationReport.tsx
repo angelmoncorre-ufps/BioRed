@@ -1,19 +1,24 @@
 import { useMemo, useCallback, useState, useEffect } from 'react';
-import { FileDown, FileJson, RotateCcw, AlertTriangle, Activity, CheckCircle2, XCircle, Info, Lightbulb, Shield, AlertOctagon, Network, Skull } from 'lucide-react';
+import { FileDown, FileJson, RotateCcw, AlertTriangle, Activity, CheckCircle2, XCircle, Shield, AlertOctagon, Network, Skull, X, Copy, Check } from 'lucide-react';
 import { useApp, type NetworkEdge, type NetworkNode } from '../context/AppContext';
 import { analyzeRobustness, kruskalMST, getComponentColor, getBiologicalInterpretation, type BiologicalInterpretation } from '../logic/networkEngine';
 
 export function SimulationReport() {
-  const { 
-    nodes, 
-    edges, 
-    metrics, 
-    eliminatedNodeIds, 
+  const {
+    nodes,
+    edges,
+    metrics,
+    eliminatedNodeIds,
     simulationState,
     resetSimulation,
     setSimulationState,
-    setSelectedNode
+    setSelectedNode,
+    getGraphJSONString,
+    graphSourceName,
   } = useApp();
+
+  const [showJsonModal, setShowJsonModal] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Typing effect for hero message
   const [displayedText, setDisplayedText] = useState('');
@@ -193,6 +198,20 @@ export function SimulationReport() {
     setSimulationState('normal');
   }, [resetSimulation, setSelectedNode, setSimulationState]);
 
+  const handleExportPDF = useCallback(() => {
+    window.print();
+  }, []);
+
+  const handleCopyJson = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(getGraphJSONString());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      alert('No se pudo copiar al portapapeles');
+    }
+  }, [getGraphJSONString]);
+
   // Generate component legend based on actual components
   const componentLegend = useMemo(() => {
     if (!analysis || analysis.connectedComponents === 0) return [];
@@ -212,8 +231,8 @@ export function SimulationReport() {
   }, [analysis]);
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="bg-slate-100 dark:bg-[#0f1729] border-b border-slate-300 dark:border-slate-700/50 px-6 py-4 sticky top-0 z-50">
+    <div id="simulation-report" className="flex-1 flex flex-col overflow-hidden print:block">
+      <div className="bg-slate-100 dark:bg-[#0f1729] border-b border-slate-300 dark:border-slate-700/50 px-6 py-4 sticky top-0 z-50 print:static">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl text-slate-800 dark:text-white">BioRed-Explorer | Reporte de Simulación</h1>
@@ -222,12 +241,18 @@ export function SimulationReport() {
               <span className="text-sm text-slate-600 dark:text-slate-400">Estado: Análisis de Fragmentación en curso</span>
             </div>
           </div>
-          <div className="flex gap-3">
-            <button className="flex items-center gap-2 px-4 py-2 bg-slate-300 dark:bg-slate-700/50 hover:bg-slate-400 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg transition-colors border border-slate-400 dark:border-slate-600/50">
+          <div className="flex gap-3 print:hidden">
+            <button
+              onClick={handleExportPDF}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-300 dark:bg-slate-700/50 hover:bg-slate-400 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg border border-slate-400 dark:border-slate-600/50"
+            >
               <FileDown className="w-4 h-4" />
               <span className="text-sm">Exportar Reporte PDF</span>
             </button>
-            <button className="flex items-center gap-2 px-4 py-2 bg-slate-300 dark:bg-slate-700/50 hover:bg-slate-400 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg transition-colors border border-slate-400 dark:border-slate-600/50">
+            <button
+              onClick={() => setShowJsonModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-300 dark:bg-slate-700/50 hover:bg-slate-400 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg border border-slate-400 dark:border-slate-600/50"
+            >
               <FileJson className="w-4 h-4" />
               <span className="text-sm">Ver JSON Original</span>
             </button>
@@ -526,6 +551,37 @@ export function SimulationReport() {
           </div>
         </div>
       </div>
+
+      {showJsonModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 print:hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col border border-slate-300 dark:border-slate-700">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+              <div>
+                <h3 className="text-slate-800 dark:text-white font-medium">JSON del Grafo</h3>
+                <p className="text-xs text-slate-500">{graphSourceName}</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCopyJson}
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-700 dark:text-slate-300"
+                >
+                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  {copied ? 'Copiado' : 'Copiar'}
+                </button>
+                <button
+                  onClick={() => setShowJsonModal(false)}
+                  className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+                >
+                  <X className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+                </button>
+              </div>
+            </div>
+            <pre className="flex-1 overflow-auto p-4 text-xs font-mono text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-950">
+              {getGraphJSONString()}
+            </pre>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

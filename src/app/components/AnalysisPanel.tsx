@@ -1,7 +1,9 @@
-import { ChevronRight, Trash2, Activity, AlertTriangle, Network, CheckCircle2 } from 'lucide-react';
+import { ChevronRight, Trash2, Activity, AlertTriangle, Network, CheckCircle2, X } from 'lucide-react';
 import { useState, useMemo, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { useApp, type NetworkEdge } from '../context/AppContext';
+import { useApp, type NetworkEdge, type NetworkNode, resolveEliminationForSimulation } from '../context/AppContext';
+import { SimulationAttackConfig } from './SimulationAttackConfig';
+import { getAttackModeInfo } from '../logic/attackModeInfo';
 
 interface AnalysisPanelProps {
   onNavigate?: (view: 'dashboard' | 'report') => void;
@@ -9,16 +11,29 @@ interface AnalysisPanelProps {
 
 export function AnalysisPanel({ onNavigate }: AnalysisPanelProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const { 
-    nodes, 
-    edges, 
-    selectedNode, 
+  const {
+    nodes,
+    edges,
+    selectedNode,
     setSelectedNode,
-    runSimulation, 
+    runSimulation,
     simulationState,
     metrics,
-    resetSimulation
+    resetSimulation,
+    simulationSettings,
+    eliminationTargets,
+    clearEliminationTargets,
+    toggleEliminationTarget,
   } = useApp();
+
+  const markedNodes = useMemo(
+    () =>
+      eliminationTargets.map((id) => {
+        const n = nodes.find((node: NetworkNode) => node.id === id);
+        return { id, label: n?.label || id };
+      }),
+    [eliminationTargets, nodes]
+  );
 
   // Calculate node degree (number of connections)
   const nodeDegree = useMemo(() => {
@@ -53,43 +68,35 @@ export function AnalysisPanel({ onNavigate }: AnalysisPanelProps) {
     ];
   }, [connectivityPercentage, simulationState, metrics]);
 
-  // Run simulation when clicking "Eliminar Nodo"
-  const handleEliminarNodo = useCallback(() => {
-    if (!selectedNode) {
-      alert('Por favor, selecciona un nodo primero haciendo clic en el grafo.');
-      return;
-    }
+  const executeSimulation = useCallback(() => {
+    const nodesToEliminate = resolveEliminationForSimulation(
+      simulationSettings,
+      nodes,
+      edges,
+      eliminationTargets
+    );
 
-    // Also eliminate highly connected neighbors for more dramatic effect
-    const nodeConnections = edges.filter((e: NetworkEdge) => 
-      e.source === selectedNode.id || e.target === selectedNode.id
-    );
-    
-    // Get connected nodes sorted by degree
-    const connectedNodeIds = nodeConnections.map((e: NetworkEdge) => 
-      e.source === selectedNode.id ? e.target : e.source
-    );
-    
-    // Calculate degree for each connected node
-    const nodeDegrees = connectedNodeIds.map((id: string) => ({
-      id,
-      degree: edges.filter((e: NetworkEdge) => e.source === id || e.target === id).length
-    }));
-    
-    // Sort by degree descending and take top 2 most connected + the selected node
-    nodeDegrees.sort((a: {id: string; degree: number}, b: {id: string; degree: number}) => b.degree - a.degree);
-    const nodesToEliminate = [selectedNode.id];
-    
-    // Add up to 2 most connected neighbors
-    for (let i = 0; i < Math.min(2, nodeDegrees.length); i++) {
-      if (!nodesToEliminate.includes(nodeDegrees[i].id)) {
-        nodesToEliminate.push(nodeDegrees[i].id);
+    if (nodesToEliminate.length === 0) {
+      if (simulationSettings.attackMode === 'random') {
+        alert('No se pudo generar una eliminación aleatoria.');
+      } else {
+        alert(
+          'Primero marca uno o más nodos en el grafo (clic en cada nodo). Luego pulsa este botón para ejecutar la simulación.'
+        );
       }
+      return;
     }
 
     runSimulation(nodesToEliminate);
     onNavigate?.('report');
-  }, [selectedNode, edges, runSimulation, onNavigate]);
+  }, [eliminationTargets, edges, nodes, simulationSettings, runSimulation, onNavigate]);
+
+  const handleEliminarNodo = executeSimulation;
+
+  const canExecute =
+    simulationSettings.attackMode === 'random' || eliminationTargets.length > 0;
+
+  const attackInfo = getAttackModeInfo(simulationSettings.attackMode);
 
   if (isCollapsed) {
     return (
@@ -154,6 +161,56 @@ export function AnalysisPanel({ onNavigate }: AnalysisPanelProps) {
             <Activity className="w-4 h-4 text-red-500 dark:text-red-400" />
             <h3 className="text-slate-800 dark:text-white text-sm">Prueba de Robustez</h3>
           </div>
+          <div className="mb-3">
+            <SimulationAttackConfig variant="panel" />
+          </div>
+
+          {simulationState === 'normal' && (
+            <div className="mb-3 space-y-2">
+              <div className="rounded-lg border border-orange-200 dark:border-orange-800/40 bg-orange-50/50 dark:bg-orange-950/20 px-3 py-2">
+                <p className="text-xs text-orange-800 dark:text-orange-200 font-medium">Tu turno</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                  {attackInfo.requiresMarking
+                    ? 'Marca nodos en el grafo (clic → naranja), luego ejecuta abajo.'
+                    : 'Puedes ejecutar directo o marcar un nodo para darle prioridad.'}
+                </p>
+              </div>
+              {markedNodes.length > 0 ? (
+                <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-3 border border-orange-200 dark:border-orange-800/30">
+                  <div className="text-xs text-orange-700 dark:text-orange-400 font-medium mb-2">
+                    Nodos marcados para eliminar ({markedNodes.length})
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {markedNodes.map((n) => (
+                      <button
+                        key={n.id}
+                        type="button"
+                        onClick={() => toggleEliminationTarget(n.id)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 dark:bg-orange-900/40 text-orange-800 dark:text-orange-200 rounded-full text-xs font-mono border border-orange-300 dark:border-orange-700 hover:bg-orange-200 dark:hover:bg-orange-800/50"
+                        title="Clic para desmarcar"
+                      >
+                        {n.label}
+                        <X className="w-3 h-3" />
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearEliminationTargets}
+                    className="mt-2 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline"
+                  >
+                    Limpiar selección
+                  </button>
+                </div>
+              ) : (
+                <div className="text-xs text-slate-500 dark:text-slate-500 italic px-1">
+                  {simulationSettings.attackMode === 'random'
+                    ? 'Modo aleatorio: puedes ejecutar sin marcar nodos.'
+                    : 'Ningún nodo marcado aún.'}
+                </div>
+              )}
+            </div>
+          )}
 
           {simulationState === 'post-ataque' ? (
             <div className="space-y-3">
@@ -174,7 +231,11 @@ export function AnalysisPanel({ onNavigate }: AnalysisPanelProps) {
                 </div>
               </div>
               <button
-                onClick={() => { resetSimulation(); setSelectedNode(null); }}
+                onClick={() => {
+                  resetSimulation();
+                  setSelectedNode(null);
+                  clearEliminationTargets();
+                }}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white rounded-lg transition-all shadow-lg shadow-emerald-500/20"
               >
                 <CheckCircle2 className="w-4 h-4" />
@@ -184,16 +245,20 @@ export function AnalysisPanel({ onNavigate }: AnalysisPanelProps) {
           ) : (
             <button
               onClick={handleEliminarNodo}
-              disabled={!selectedNode}
+              disabled={!canExecute}
               className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg transition-all border ${
-                selectedNode 
-                  ? 'bg-gradient-to-r from-red-500/20 to-red-600/20 hover:from-red-500/30 hover:to-red-600/30 text-red-500 dark:text-red-400 border-red-500/30' 
+                canExecute
+                  ? 'bg-gradient-to-r from-red-500/20 to-red-600/20 hover:from-red-500/30 hover:to-red-600/30 text-red-500 dark:text-red-400 border-red-500/30'
                   : 'bg-slate-100 dark:bg-slate-800/50 text-slate-400 dark:text-slate-600 border-slate-300 dark:border-slate-700 cursor-not-allowed'
               }`}
             >
               <Trash2 className="w-4 h-4" />
               <span className="text-sm">
-                {selectedNode ? 'Ejecutar Simulación' : 'Selecciona un Nodo'}
+                {canExecute
+                  ? eliminationTargets.length > 0
+                    ? `Ejecutar simulación (${eliminationTargets.length} nodo${eliminationTargets.length !== 1 ? 's' : ''})`
+                    : 'Ejecutar simulación aleatoria'
+                  : 'Marca nodos en el grafo primero'}
               </span>
             </button>
           )}
@@ -279,10 +344,11 @@ export function AnalysisPanel({ onNavigate }: AnalysisPanelProps) {
             {simulationState === 'post-ataque' ? '⚠️ Estado Post-Ataque' : '● Simulación Normal'}
           </div>
           <div className="text-sm text-slate-800 dark:text-white">
-            {simulationState === 'post-ataque' 
+            {simulationState === 'post-ataque'
               ? 'Red fragmentada - Análisis disponible'
-              : 'Selecciona un nodo para simular ataque'
-            }
+              : eliminationTargets.length > 0
+                ? `${eliminationTargets.length} nodo(s) listos — ejecuta cuando quieras`
+                : 'Marca nodos en el grafo, luego ejecuta la simulación'}
           </div>
         </div>
       </div>
