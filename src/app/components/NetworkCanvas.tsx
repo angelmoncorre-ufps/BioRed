@@ -183,6 +183,7 @@ export function NetworkCanvas() {
   const dijkstraPendingRef = useRef<string | null>(null);
   const [dijkstraPath, setDijkstraPath] = useState<string[] | null>(null);
   const [dijkstraDistance, setDijkstraDistance] = useState<number | null>(null);
+  const [dijkstraNoPath, setDijkstraNoPath] = useState(false);
   const [mstEdgeIds, setMstEdgeIds] = useState<string[]>([]);
 
   const {
@@ -204,20 +205,26 @@ export function NetworkCanvas() {
     activeAlgorithm: 'none' as AlgorithmMode,
     nodes: [] as NetworkNode[],
     edges: [] as NetworkEdge[],
+    simulationState: 'normal' as typeof simulationState,
+    eliminatedNodeIds: [] as string[],
     toggleEliminationTarget,
     setSelectedNode,
     setDijkstraPath,
     setDijkstraDistance,
+    setDijkstraNoPath: (v: boolean) => {},
   });
 
   handlersRef.current = {
     activeAlgorithm,
     nodes,
     edges,
+    simulationState,
+    eliminatedNodeIds,
     toggleEliminationTarget,
     setSelectedNode,
     setDijkstraPath,
     setDijkstraDistance,
+    setDijkstraNoPath,
   };
 
   const clearDijkstraVisuals = useCallback((cy: Core) => {
@@ -271,16 +278,25 @@ export function NetworkCanvas() {
           node.style('background-color', '#3b82f6');
           node.style('border-color', '#2563eb');
         } else if (pending !== nodeId) {
-          const graphNodes: GraphNode[] = h.nodes.map((n) => ({ id: n.id, label: n.label }));
-          const graphEdges: GraphEdge[] = h.edges.map((e, i) => ({
-            id: e.id || `edge-${i}`,
-            source: e.source,
-            target: e.target,
-            weight: e.weight || 1,
-          }));
+          // Filtrar nodos eliminados y sus aristas
+          const eliminatedSet = new Set(
+            h.simulationState === 'post-ataque' ? h.eliminatedNodeIds : []
+          );
+          const graphNodes: GraphNode[] = h.nodes
+            .filter((n) => !eliminatedSet.has(n.id))
+            .map((n) => ({ id: n.id, label: n.label }));
+          const graphEdges: GraphEdge[] = h.edges
+            .filter((e) => !eliminatedSet.has(e.source) && !eliminatedSet.has(e.target))
+            .map((e, i) => ({
+              id: e.id || `edge-${i}`,
+              source: e.source,
+              target: e.target,
+              weight: e.weight || 1,
+            }));
 
           const result = dijkstra(graphNodes, graphEdges, pending, nodeId);
 
+          h.setDijkstraNoPath(false);
           if (result && cyRef.current) {
             h.setDijkstraPath(result.path);
             h.setDijkstraDistance(result.distance);
@@ -330,6 +346,11 @@ export function NetworkCanvas() {
                 mid.style('border-color', '#06b6d4');
               }
             }
+          } else if (cyRef.current) {
+            clearDijkstraVisuals(cyRef.current);
+            h.setDijkstraPath(null);
+            h.setDijkstraDistance(null);
+            h.setDijkstraNoPath(true);
           }
           dijkstraPendingRef.current = null;
         }
@@ -350,6 +371,7 @@ export function NetworkCanvas() {
       h.setSelectedNode(null);
       h.setDijkstraPath(null);
       h.setDijkstraDistance(null);
+      h.setDijkstraNoPath(false);
       if (cyRef.current) clearDijkstraVisuals(cyRef.current);
     });
 
@@ -464,12 +486,15 @@ export function NetworkCanvas() {
     if (activeAlgorithm === 'dijkstra') return;
     setDijkstraPath(null);
     setDijkstraDistance(null);
+    setDijkstraNoPath(false);
     if (cyRef.current) clearDijkstraVisuals(cyRef.current);
   }, [activeAlgorithm, clearDijkstraVisuals]);
 
   // Manejar resultado de Dijkstra aleatorio
   useEffect(() => {
     if (!dijkstraRandomResult || !cyRef.current) return;
+
+    setDijkstraNoPath(false);
 
     const cy = cyRef.current;
     const { path, distance, startNode, endNode } = dijkstraRandomResult;
@@ -623,6 +648,14 @@ export function NetworkCanvas() {
       )}
 
       <div ref={containerRef} className="flex-1 w-full h-full" style={{ minHeight: '400px' }} />
+
+      {dijkstraNoPath && (
+        <div className="absolute top-4 left-4 z-20 bg-red-50/90 dark:bg-red-900/90 backdrop-blur-sm border border-red-300 dark:border-red-700/50 px-4 py-3 rounded-lg shadow-lg">
+          <span className="text-red-700 dark:text-red-300 text-sm font-medium">
+            No hay camino disponible entre los nodos seleccionados
+          </span>
+        </div>
+      )}
 
       {dijkstraPath && dijkstraDistance !== null && (
         <div className="absolute top-4 left-4 z-20 bg-blue-50/90 dark:bg-blue-900/90 backdrop-blur-sm border border-blue-300 dark:border-blue-700/50 px-4 py-3 rounded-lg shadow-lg">

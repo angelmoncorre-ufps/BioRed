@@ -404,20 +404,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const runDijkstraRandom = useCallback(() => {
-    if (nodes.length < 2) return null;
+    const eligible = simulationState === 'post-ataque'
+      ? nodes.filter((n) => !eliminatedNodeIds.includes(n.id))
+      : nodes;
+    if (eligible.length < 2) return null;
 
-    // Seleccionar dos nodos aleatorios diferentes
-    const shuffled = [...nodes].sort(() => Math.random() - 0.5);
+    // Seleccionar dos nodos aleatorios diferentes entre los elegibles
+    const shuffled = [...eligible].sort(() => Math.random() - 0.5);
     const startNode = shuffled[0];
     const endNode = shuffled[1];
 
-    const graphNodes: GraphNode[] = nodes.map((n) => ({ id: n.id, label: n.label }));
-    const graphEdges: GraphEdge[] = edges.map((e) => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      weight: e.weight || 1,
-    }));
+    const eliminatedSet = new Set(simulationState === 'post-ataque' ? eliminatedNodeIds : []);
+    const graphNodes: GraphNode[] = eligible.map((n) => ({ id: n.id, label: n.label }));
+    const graphEdges: GraphEdge[] = edges
+      .filter((e) => !eliminatedSet.has(e.source) && !eliminatedSet.has(e.target))
+      .map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        weight: e.weight || 1,
+      }));
 
     const result = dijkstra(graphNodes, graphEdges, startNode.id, endNode.id);
 
@@ -434,7 +440,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     return null;
-  }, [nodes, edges]);
+  }, [nodes, edges, eliminatedNodeIds, simulationState]);
 
   useEffect(() => {
     if (!initialized) {

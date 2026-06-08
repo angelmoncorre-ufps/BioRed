@@ -34,6 +34,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     runKruskal,
     runDijkstraRandom,
     clearAlgorithm,
+    simulationState,
     history,
     addToHistory,
     loadFromHistory,
@@ -94,7 +95,10 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const handleDijkstraRandomClick = () => {
     const result = runDijkstraRandom();
     if (!result) {
-      alert('Se necesitan al menos 2 nodos para ejecutar Dijkstra aleatorio');
+      const msg = simulationState === 'post-ataque'
+        ? 'No hay camino disponible entre los nodos activos después del ataque'
+        : 'Se necesitan al menos 2 nodos para ejecutar Dijkstra aleatorio';
+      alert(msg);
     }
   };
 
