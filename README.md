@@ -1,6 +1,6 @@
 <div align="center">
   <br/>
-  <img src="favicon.svg" width="64" height="64" alt="BioRed-Explorer"/>
+  <img src="public/favicon.svg" width="64" height="64" alt="BioRed-Explorer"/>
   <h1 align="center">BioRed-Explorer</h1>
   <p align="center">
     Visualizador interactivo de redes biológicas<br/>
