@@ -32,9 +32,9 @@ export function GraphJsonEditor() {
       resetSimulation();
       setSelectedNode(null);
       clearEliminationTargets();
-      if (cy) cy.elements().remove();
-      loadFromJSON(json, `${graphSourceName} (editado)`);
-      addToHistory(`${graphSourceName} (editado)`, json);
+      const baseName = graphSourceName.replace(/ \(editado\)/g, '').trim();
+      loadFromJSON(json, `${baseName} (editado)`);
+      addToHistory(`${baseName} (editado)`, json);
       setDirty(false);
       setError(null);
     } catch (e) {

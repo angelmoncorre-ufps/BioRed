@@ -211,6 +211,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
       .filter((e) => e.source && e.target);
 
+    // Validar que todas las aristas referencien nodos existentes
+    const nodeIds = new Set(parsedNodes.map((n) => n.id));
+    for (const edge of parsedEdges) {
+      if (!nodeIds.has(edge.source)) {
+        throw new Error(
+          `La arista "${edge.id || edge.source + '-' + edge.target}" referencia al nodo "${edge.source}" que no existe en la lista de nodos`
+        );
+      }
+      if (!nodeIds.has(edge.target)) {
+        throw new Error(
+          `La arista "${edge.id || edge.source + '-' + edge.target}" referencia al nodo "${edge.target}" que no existe en la lista de nodos`
+        );
+      }
+    }
+
     setNodes(parsedNodes);
     setEdges(parsedEdges);
     setSimulationState('normal');

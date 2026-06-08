@@ -181,8 +181,6 @@ export function NetworkCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const dijkstraPendingRef = useRef<string | null>(null);
-  const graphSignatureRef = useRef('');
-
   const [dijkstraPath, setDijkstraPath] = useState<string[] | null>(null);
   const [dijkstraDistance, setDijkstraDistance] = useState<number | null>(null);
   const [mstEdgeIds, setMstEdgeIds] = useState<string[]>([]);
@@ -368,10 +366,6 @@ export function NetworkCanvas() {
   // Recargar elementos solo cuando cambian los datos del grafo (no al cambiar algoritmo)
   useEffect(() => {
     if (!cyRef.current || nodes.length === 0) return;
-
-    const signature = `${nodes.map((n) => n.id).join(',')}|${edges.map((e) => `${e.source}-${e.target}`).join(',')}`;
-    if (signature === graphSignatureRef.current) return;
-    graphSignatureRef.current = signature;
 
     const cy = cyRef.current;
     cy.elements().remove();

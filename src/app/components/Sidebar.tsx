@@ -53,7 +53,6 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     resetSimulation();
     setSelectedNode(null);
     clearEliminationTargets();
-    if (cy) cy.elements().remove();
 
     const reader = new FileReader();
     reader.onload = (e) => {
