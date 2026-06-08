@@ -5,7 +5,6 @@ export type AttackMode = 'single' | 'cascade' | 'random';
 export interface SimulationSettings {
   attackMode: AttackMode;
   nodeCount: number;
-  autoRun: boolean;
 }
 
 function getNodeDegree(nodeId: string, edges: NetworkEdge[]): number {
@@ -62,9 +61,6 @@ export function computeNodesToEliminate(
   }
 
   if (!selectedNodeId) {
-    if (settings.attackMode === 'random') {
-      return pickRandomNodes(nodes, count, null);
-    }
     return [];
   }
 
@@ -111,12 +107,45 @@ export function resolveEliminationForSimulation(
   manualTargets: string[]
 ): string[] {
   if (manualTargets.length > 0) {
-    if (settings.attackMode === 'cascade' && manualTargets.length === 1) {
-      return computeNodesToEliminate(settings, nodes, edges, manualTargets[0]);
-    }
     if (settings.attackMode === 'single') {
       return manualTargets.slice(0, 1);
     }
+
+    if (settings.attackMode === 'cascade') {
+      const count = Math.max(1, Math.min(settings.nodeCount, nodes.length));
+      const toEliminate = new Set<string>();
+
+      // Propagar cascada desde cada nodo marcado
+      for (const targetId of manualTargets) {
+        if (toEliminate.size >= count) break;
+        const cascadeResult = computeNodesToEliminate(
+          { ...settings, nodeCount: count },
+          nodes,
+          edges,
+          targetId
+        );
+        cascadeResult.forEach((id) => {
+          if (toEliminate.size < count) toEliminate.add(id);
+        });
+      }
+
+      // Si aún faltan, llenar con vecinos de mayor grado
+      if (toEliminate.size < count) {
+        const remaining = nodes
+          .map((n) => n.id)
+          .filter((id) => !toEliminate.has(id))
+          .map((id) => ({ id, degree: getNodeDegree(id, edges) }))
+          .sort((a, b) => b.degree - a.degree);
+
+        for (const { id } of remaining) {
+          if (toEliminate.size >= count) break;
+          toEliminate.add(id);
+        }
+      }
+
+      return Array.from(toEliminate).slice(0, count);
+    }
+
     const limit = Math.min(settings.nodeCount, manualTargets.length);
     return manualTargets.slice(0, limit);
   }

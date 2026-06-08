@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Search, Play, RotateCcw, ChevronDown, Settings2 } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { SimulationAttackConfig } from './SimulationAttackConfig';
@@ -11,6 +11,9 @@ interface TopBarProps {
 
 export function TopBar({ onNavigate }: TopBarProps) {
   const [attackPanelOpen, setAttackPanelOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -23,7 +26,42 @@ export function TopBar({ onNavigate }: TopBarProps) {
     simulationState,
     eliminationTargets,
     clearEliminationTargets,
+    cy,
   } = useApp();
+
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    return nodes
+      .filter((n) => n.id.toLowerCase().includes(q) || n.label.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [searchQuery, nodes]);
+
+  const handleSelectSearchResult = (nodeId: string) => {
+    const node = nodes.find((n) => n.id === nodeId);
+    if (node) {
+      setSelectedNode(node);
+      if (cy) {
+        const cyNode = cy.getElementById(nodeId);
+        if (cyNode && cyNode.length > 0) {
+          cy.fit(cyNode, 50);
+          cyNode.select();
+        }
+      }
+    }
+    setSearchQuery('');
+    setShowSuggestions(false);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const attackInfo = getAttackModeInfo(simulationSettings.attackMode);
 
@@ -64,15 +102,41 @@ export function TopBar({ onNavigate }: TopBarProps) {
   return (
     <div ref={panelRef} className="relative z-40 bg-slate-100 dark:bg-[#0f1729] border-b border-slate-300 dark:border-slate-700/50">
       <div className="h-16 flex items-center justify-between gap-4 px-4 lg:px-6">
-        <div className="flex-1 min-w-0 max-w-sm hidden sm:block">
+        <div ref={searchRef} className="flex-1 min-w-0 max-w-sm hidden sm:block relative">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
               placeholder="Buscar proteína por ID..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setShowSuggestions(e.target.value.trim().length > 0);
+              }}
+              onFocus={() => setShowSuggestions(searchQuery.trim().length > 0)}
               className="w-full bg-white dark:bg-slate-800/50 border border-slate-300 dark:border-slate-700/50 rounded-lg pl-10 pr-4 py-2 text-sm text-slate-700 dark:text-slate-300 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
             />
           </div>
+          {showSuggestions && searchResults.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto">
+              {searchResults.map((node) => (
+                <button
+                  key={node.id}
+                  onClick={() => handleSelectSearchResult(node.id)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors border-b border-slate-100 dark:border-slate-700/50 last:border-b-0"
+                >
+                  <span className="w-2 h-2 rounded-full bg-cyan-500 shrink-0" />
+                  <span className="text-sm text-slate-700 dark:text-slate-200 font-mono">{node.id}</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 truncate">{node.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {showSuggestions && searchQuery.trim().length > 0 && searchResults.length === 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg shadow-xl z-50 px-4 py-3">
+              <p className="text-xs text-slate-500 dark:text-slate-400">No se encontraron nodos</p>
+            </div>
+          )}
         </div>
 
         <button

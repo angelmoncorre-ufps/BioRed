@@ -59,7 +59,6 @@ const MAX_HISTORY = 10;
 const DEFAULT_SETTINGS: SimulationSettings = {
   attackMode: 'single',
   nodeCount: 1,
-  autoRun: false,
 };
 
 interface AppContextType {

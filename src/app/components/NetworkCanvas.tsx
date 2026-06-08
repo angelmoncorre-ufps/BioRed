@@ -57,6 +57,14 @@ const CYTOSCAPE_STYLES: cytoscape.Stylesheet[] = [
     },
   },
   {
+    selector: 'node[?isDijkstraPath]',
+    style: {
+      'background-color': '#22d3ee',
+      'border-color': '#06b6d4',
+      'border-width': '3px',
+    },
+  },
+  {
     selector: 'node[?markedForElimination]',
     style: {
       'background-color': '#f97316',
@@ -72,6 +80,10 @@ const CYTOSCAPE_STYLES: cytoscape.Stylesheet[] = [
       width: 4,
       opacity: 1,
       'line-style': 'solid',
+      'target-arrow-shape': 'triangle',
+      'target-arrow-color': '#3b82f6',
+      'arrow-scale': 1.5,
+      'curve-style': 'bezier',
     },
   },
   {
@@ -92,7 +104,7 @@ const CYTOSCAPE_STYLES: cytoscape.Stylesheet[] = [
     style: { 'background-color': '#ef4444', 'border-color': '#dc2626' },
   },
   {
-    selector: 'node[type="eliminated"]',
+    selector: '.eliminated',
     style: {
       'background-color': '#ef4444',
       'border-color': '#7f1d1d',
@@ -113,6 +125,13 @@ const CYTOSCAPE_STYLES: cytoscape.Stylesheet[] = [
       'target-arrow-shape': 'none',
       'curve-style': 'bezier',
       opacity: 0.8,
+      label: 'data(weight)',
+      'font-size': '10px',
+      color: '#0f172a',
+      'text-background-color': '#f1f5f9',
+      'text-background-opacity': 0.75,
+      'text-background-padding': '2px',
+      'edge-text-rotation': 'autorotate',
     },
   },
   {
@@ -208,6 +227,18 @@ export function NetworkCanvas() {
     cy.nodes().forEach((n: NodeSingular) => {
       n.data('isDijkstraStart', false);
       n.data('isDijkstraEnd', false);
+      n.data('isDijkstraPath', false);
+      n.style('background-color', '');
+      n.style('border-color', '');
+    });
+    cy.edges().forEach((e: EdgeSingular) => {
+      e.style('line-color', '');
+      e.style('width', '');
+      e.style('opacity', '');
+      e.style('line-style', '');
+      e.style('target-arrow-shape', '');
+      e.style('target-arrow-color', '');
+      e.style('source-arrow-shape', '');
     });
     cy.edges().removeClass('dijkstra-path');
   }, []);
@@ -239,6 +270,8 @@ export function NetworkCanvas() {
           dijkstraPendingRef.current = nodeId;
           node.data('isDijkstraStart', true);
           node.data('isDijkstraEnd', false);
+          node.style('background-color', '#3b82f6');
+          node.style('border-color', '#2563eb');
         } else if (pending !== nodeId) {
           const graphNodes: GraphNode[] = h.nodes.map((n) => ({ id: n.id, label: n.label }));
           const graphEdges: GraphEdge[] = h.edges.map((e, i) => ({
@@ -256,9 +289,22 @@ export function NetworkCanvas() {
 
             clearDijkstraVisuals(cyRef.current);
             cyRef.current.getElementById(pending)?.data('isDijkstraStart', true);
+            cyRef.current.getElementById(pending)?.style('background-color', '#3b82f6');
+            cyRef.current.getElementById(pending)?.style('border-color', '#2563eb');
             cyRef.current.getElementById(nodeId)?.data('isDijkstraEnd', true);
+            cyRef.current.getElementById(nodeId)?.style('background-color', '#8b5cf6');
+            cyRef.current.getElementById(nodeId)?.style('border-color', '#7c3aed');
 
-            cyRef.current.edges().removeClass('dijkstra-path');
+            // Limpiar estilos directos previos en edges
+            cyRef.current.edges().forEach((e: EdgeSingular) => {
+              e.style('line-color', '');
+              e.style('width', '');
+              e.style('opacity', '');
+              e.style('target-arrow-shape', '');
+              e.style('target-arrow-color', '');
+            });
+
+            // Aplicar estilos a las aristas del camino
             for (let i = 0; i < result.path.length - 1; i++) {
               const source = result.path[i];
               const target = result.path[i + 1];
@@ -267,7 +313,24 @@ export function NetworkCanvas() {
                 const t = e.data('target');
                 return (s === source && t === target) || (s === target && t === source);
               });
-              edge?.addClass('dijkstra-path');
+              if (edge.length > 0) {
+                edge.style('line-color', '#3b82f6');
+                edge.style('width', 5);
+                edge.style('opacity', 1);
+                edge.style('line-style', 'solid');
+                edge.style('target-arrow-shape', '');
+                edge.style('source-arrow-shape', '');
+              }
+            }
+
+            // Marcar nodos intermedios del camino
+            for (let i = 1; i < result.path.length - 1; i++) {
+              const mid = cyRef.current.getElementById(result.path[i]);
+              if (mid.length > 0) {
+                mid.data('isDijkstraPath', true);
+                mid.style('background-color', '#22d3ee');
+                mid.style('border-color', '#06b6d4');
+              }
             }
           }
           dijkstraPendingRef.current = null;
@@ -332,6 +395,7 @@ export function NetworkCanvas() {
           degree: nodeDegrees.get(node.id) || 0,
           isDijkstraStart: false,
           isDijkstraEnd: false,
+          isDijkstraPath: false,
           markedForElimination: eliminationTargets.includes(node.id),
         },
       });
@@ -376,20 +440,30 @@ export function NetworkCanvas() {
     setMstEdgeIds([]);
 
     if (activeAlgorithm === 'kruskal') {
-      const graphNodes: GraphNode[] = nodes.map((n) => ({ id: n.id, label: n.label }));
-      const graphEdges: GraphEdge[] = edges.map((e, i) => ({
-        id: e.id || `edge-${i}`,
-        source: e.source,
-        target: e.target,
-        weight: e.weight || 1,
-      }));
+      // Excluir nodos eliminados en post-ataque para que el MST no los considere
+      const activeNodeIds = new Set(
+        simulationState === 'post-ataque'
+          ? nodes.filter((n) => !eliminatedNodeIds.includes(n.id)).map((n) => n.id)
+          : nodes.map((n) => n.id)
+      );
+      const graphNodes: GraphNode[] = nodes
+        .filter((n) => activeNodeIds.has(n.id))
+        .map((n) => ({ id: n.id, label: n.label }));
+      const graphEdges: GraphEdge[] = edges
+        .filter((e) => activeNodeIds.has(e.source) && activeNodeIds.has(e.target))
+        .map((e, i) => ({
+          id: e.id || `edge-${i}`,
+          source: e.source,
+          target: e.target,
+          weight: e.weight || 1,
+        }));
       const edgeIds = kruskalMST(graphNodes, graphEdges);
       setMstEdgeIds(edgeIds);
       edgeIds.forEach((edgeId) => {
         cy.getElementById(edgeId)?.addClass('mst-edge');
       });
     }
-  }, [activeAlgorithm, nodes, edges]);
+  }, [activeAlgorithm, nodes, edges, simulationState, eliminatedNodeIds]);
 
   // Al desactivar Dijkstra, limpiar resaltados
   useEffect(() => {
@@ -411,10 +485,22 @@ export function NetworkCanvas() {
 
     // Marcar nodos de inicio y fin
     cy.getElementById(startNode)?.data('isDijkstraStart', true);
+    cy.getElementById(startNode)?.style('background-color', '#3b82f6');
+    cy.getElementById(startNode)?.style('border-color', '#2563eb');
     cy.getElementById(endNode)?.data('isDijkstraEnd', true);
+    cy.getElementById(endNode)?.style('background-color', '#8b5cf6');
+    cy.getElementById(endNode)?.style('border-color', '#7c3aed');
 
-    // Marcar aristas del camino
-    cy.edges().removeClass('dijkstra-path');
+    // Limpiar estilos directos previos en edges
+    cy.edges().forEach((e: EdgeSingular) => {
+      e.style('line-color', '');
+      e.style('width', '');
+      e.style('opacity', '');
+      e.style('target-arrow-shape', '');
+      e.style('target-arrow-color', '');
+    });
+
+    // Aplicar estilos a las aristas del camino
     for (let i = 0; i < path.length - 1; i++) {
       const source = path[i];
       const target = path[i + 1];
@@ -423,7 +509,24 @@ export function NetworkCanvas() {
         const t = e.data('target');
         return (s === source && t === target) || (s === target && t === source);
       });
-      edge?.addClass('dijkstra-path');
+      if (edge.length > 0) {
+        edge.style('line-color', '#3b82f6');
+        edge.style('width', 5);
+        edge.style('opacity', 1);
+        edge.style('line-style', 'solid');
+        edge.style('target-arrow-shape', '');
+        edge.style('source-arrow-shape', '');
+      }
+    }
+
+    // Marcar nodos intermedios del camino
+    for (let i = 1; i < path.length - 1; i++) {
+      const mid = cy.getElementById(path[i]);
+      if (mid.length > 0) {
+        mid.data('isDijkstraPath', true);
+        mid.style('background-color', '#22d3ee');
+        mid.style('border-color', '#06b6d4');
+      }
     }
 
     // Actualizar estado local
@@ -450,11 +553,6 @@ export function NetworkCanvas() {
         const node = cy.getElementById(nodeId);
         if (node) {
           node.addClass('eliminated');
-          node.style({
-            'background-color': '#ef4444',
-            'border-color': '#7f1d1d',
-            'border-width': '3px',
-          });
         }
       });
 
@@ -478,21 +576,22 @@ export function NetworkCanvas() {
       cy.nodes().removeClass('eliminated');
       cy.edges().removeClass('broken-edge');
 
+      // Limpiar estilos directos para que el stylesheet (incluyendo
+      // isDijkstraStart, isDijkstraEnd, degree, markedForElimination, type) funcione
       cy.nodes().forEach((node: NodeSingular) => {
-        const type = node.data('type') || 'healthy';
-        const colors: Record<string, string> = {
-          healthy: '#10b981',
-          perturbed: '#ef4444',
-          active: '#06b6d4',
-        };
-        node.style('background-color', colors[type] || '#10b981');
-        node.style('border-color', '#1e293b');
-        node.style('border-width', '2px');
+        node.style('background-color', '');
+        node.style('border-color', '');
+        node.style('border-width', '');
       });
 
-      cy.edges().style({
-        'line-style': 'solid',
-        opacity: 0.8,
+      cy.edges().forEach((e: EdgeSingular) => {
+        e.style('line-color', '');
+        e.style('width', '');
+        e.style('opacity', '');
+        e.style('line-style', '');
+        e.style('target-arrow-shape', '');
+        e.style('target-arrow-color', '');
+        e.style('source-arrow-shape', '');
       });
     }
   }, [simulationState, eliminatedNodeIds, nodes, edges]);
@@ -532,7 +631,7 @@ export function NetworkCanvas() {
       <div ref={containerRef} className="flex-1 w-full h-full" style={{ minHeight: '400px' }} />
 
       {dijkstraPath && dijkstraDistance !== null && (
-        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 bg-blue-50/90 dark:bg-blue-900/90 backdrop-blur-sm border border-blue-300 dark:border-blue-700/50 px-4 py-3 rounded-lg shadow-lg">
+        <div className="absolute top-4 left-4 z-20 bg-blue-50/90 dark:bg-blue-900/90 backdrop-blur-sm border border-blue-300 dark:border-blue-700/50 px-4 py-3 rounded-lg shadow-lg">
           <div className="flex items-center gap-2">
             <Navigation className="w-4 h-4 text-blue-600 dark:text-blue-400" />
             <span className="text-blue-700 dark:text-blue-300 text-sm font-medium">
@@ -549,7 +648,7 @@ export function NetworkCanvas() {
       )}
 
       {activeAlgorithm === 'kruskal' && mstEdgeIds.length > 0 && (
-        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20 bg-amber-50/90 dark:bg-amber-900/90 backdrop-blur-sm border border-amber-300 dark:border-amber-700/50 px-4 py-3 rounded-lg shadow-lg">
+        <div className="absolute top-4 left-4 z-20 bg-amber-50/90 dark:bg-amber-900/90 backdrop-blur-sm border border-amber-300 dark:border-amber-700/50 px-4 py-3 rounded-lg shadow-lg">
           <div className="flex items-center gap-2">
             <GitBranch className="w-4 h-4 text-amber-600 dark:text-amber-400" />
             <span className="text-amber-700 dark:text-amber-300 text-sm font-medium">
@@ -580,6 +679,10 @@ export function NetworkCanvas() {
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full bg-purple-500" />
           <span className="text-slate-700 dark:text-slate-300 text-xs">Destino Dijkstra</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full bg-cyan-400" />
+          <span className="text-slate-700 dark:text-slate-300 text-xs">Nodo intermedio (ruta)</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full bg-orange-500 border-2 border-dashed border-orange-600" />
